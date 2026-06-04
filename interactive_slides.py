@@ -8,6 +8,13 @@
 # [tool.uv]
 # exclude-newer = "2026-06-01T00:00:00Z"
 # ///
+
+
+# Hints:
+#  - To run this notebook: uvx marimo run interactive_slides.py
+#  - To edit:              uvx marimo edit interactive_slides.py
+#                          and then press CTRL/CMD+. to toggle slides
+
 import marimo
 
 __generated_with = "0.23.8"
@@ -15,15 +22,6 @@ app = marimo.App(
     width="medium",
     layout_file="layouts/interactive_slides.slides.json",
 )
-
-
-@app.cell
-def _():
-    # Hints:
-    #  - To run this notebook: uv run marimo run interactve_slides.py
-    #  - To edit:              uv run marimo edit interactve_slides.py
-    #                          and then press CTRL/CMD+. to toggle slides
-    return
 
 
 @app.cell
@@ -208,7 +206,7 @@ def _(mo, np):
     W_B = mo.ui.matrix(
         [[2, 0.8, 0.8], [1.2, 1, -1], [0.5, -2.5, -0.1]],
         step=0.1,
-        column_labels=["x1", "x2", "b"],
+        column_labels=["w1", "w2", "b"],
         row_labels=["neuron 1", "neuron 2", "neuron 3"],
     )
     activation = mo.ui.dropdown(
@@ -297,7 +295,114 @@ def _(activation_function_graph, activation_sliders, mo):
 
 
 @app.cell
-def _():
+def _(mo):
+    linear_w = mo.ui.slider(-2, 2, step=0.01, value=0, full_width=True)
+    linear_b = mo.ui.slider(-2, 2, step=0.01, value=0, full_width=True)
+    return linear_b, linear_w
+
+
+@app.cell
+def _(linear_b, linear_w, mo, np, plt):
+    def plot_linear_fit_on_sin():
+        # Generate some sample data
+        x = np.arange(10.1, step=0.2)
+        y = np.sin(x)
+
+        y_pred = linear_w.value * x + linear_b.value
+        mse = ((y - y_pred) ** 2).sum()
+
+        fig, ax = plt.subplots(figsize=(8, 6))
+        ax.plot(x, y, "o", label="Sine Function", color="blue")
+        ax.plot(
+            x,
+            y_pred,
+            label=f"y = {linear_w.value}x + {linear_b.value}",
+            color="red",
+            linestyle="--",
+        )
+        ax.legend(loc="upper left")
+        ax.set(
+            xlabel="x",
+            ylabel="y",
+            ylim=(-3, 3),
+        )
+
+        return mo.hstack(
+            [
+                mo.vstack(
+                    [
+                        mo.md("# Tuning a linear fit"),
+                        f"weight = {linear_w.value}",
+                        linear_w,
+                        f"bias = {linear_b.value}",
+                        linear_b,
+                        mo.md(f"## mse = {mse:0.2f}"),
+                    ]
+                ),
+                fig,
+            ]
+        )
+
+
+    plot_linear_fit_on_sin()
+    return
+
+
+@app.cell
+def _(linear_b, linear_w, mo, np, plt):
+    def plot_linear_fit_no_bias_on_sin():
+        # Generate some sample data
+        x = np.arange(10.1, step=0.2)
+        y = np.sin(x)
+
+        y_pred = linear_w.value * x
+        mse = ((y - y_pred) ** 2).sum()
+
+        fig, ax = plt.subplots(figsize=(6, 6))
+        ax.plot(x, y, "o", label="Sine Function", color="blue")
+        ax.plot(
+            x,
+            y_pred,
+            label=f"y = {linear_w.value}x + {linear_b.value}",
+            color="red",
+            linestyle="--",
+        )
+        ax.legend(loc="upper left")
+        ax.set(
+            xlabel="x",
+            ylabel="y",
+            ylim=(-3, 3),
+        )
+
+        fig2, ax = plt.subplots(figsize=(6, 6))
+        ax.plot(
+            [linear_w.value],
+            [mse],
+            "o",
+            color="red",
+        )
+        ax.set(
+            xlabel="weight",
+            ylabel="MSE",
+            xlim=(-2, 2),
+            ylim=(0, 5000),
+        )
+
+        return mo.vstack(
+            [
+                f"weight = {linear_w.value}",
+                linear_w,
+                mo.hstack(
+                    [
+                        fig,
+                        fig2,
+                    ]
+                ),
+            ]
+        )
+
+
+    plot_linear_fit_no_bias_on_sin()
     return
 
 
