@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Neural Network Demos</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: system-ui, sans-serif;
+    background: #f5f5f5;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px 16px;
+  }
+
+  h1 { font-size: 1.1rem; color: #555; margin-bottom: 16px; letter-spacing: 0.05em; text-transform: uppercase; }
+
+  .tabs {
+    display: flex;
+    gap: 4px;
+    background: #e0e0e0;
+    border-radius: 10px 10px 0 0;
+    padding: 6px 6px 0;
+  }
+
+  .tab-btn {
+    padding: 8px 22px;
+    border: none;
+    background: transparent;
+    border-radius: 7px 7px 0 0;
+    cursor: pointer;
+    font-size: 0.9rem;
+    color: #666;
+    transition: background 0.15s, color 0.15s;
+    white-space: nowrap;
+  }
+  .tab-btn.active { background: white; color: #222; font-weight: 600; box-shadow: 0 -2px 8px rgba(0,0,0,0.07); }
+  .tab-btn:hover:not(.active) { background: #d0d0d0; }
+
+  .card {
+    background: white;
+    border-radius: 0 10px 10px 10px;
+    box-shadow: 0 2px 16px rgba(0,0,0,0.10);
+    padding: 28px;
+    width: 100%;
+    max-width: 900px;
+  }
+
+  .panel { display: none; }
+  .panel.active { display: flex; gap: 20px; align-items: flex-start; }
+
+  .controls {
+    flex: 0 0 180px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .controls h2 { font-size: 1.3rem; color: #222; }
+
+  .slider-group { display: flex; flex-direction: column; gap: 4px; }
+  .slider-label { display: flex; justify-content: space-between; font-size: 0.88rem; color: #444; }
+  .slider-label span { font-weight: 600; color: #1a73e8; min-width: 40px; text-align: right; }
+  input[type=range] { width: 100%; accent-color: #1a73e8; cursor: pointer; }
+
+  .stat { font-size: 1.05rem; font-weight: 600; color: #222; }
+  .stat span { color: #d97706; }
+
+  canvas { border-radius: 6px; background: white; display: block; flex-shrink: 0; }
+</style>
+</head>
+<body>
+
+<h1>Neural Network Interactive Demos</h1>
+
+<div class="tabs">
+  <button class="tab-btn active" data-tab="lin">Linear Fit</button>
+  <button class="tab-btn" data-tab="loss">Loss Landscape</button>
+</div>
+
+<div class="card">
+
+  <!-- Linear Fit -->
+  <div class="panel active" id="panel-lin">
+    <div class="controls">
+      <h2>Tuning a linear fit</h2>
+      <div class="slider-group">
+        <div class="slider-label">weight <span id="lin-w-val">0.00</span></div>
+        <input type="range" id="lin-w" min="-2" max="2" step="0.01" value="0">
+      </div>
+      <div class="slider-group">
+        <div class="slider-label">bias <span id="lin-b-val">0.00</span></div>
+        <input type="range" id="lin-b" min="-2" max="2" step="0.01" value="0">
+      </div>
+      <div class="stat">MSE = <span id="lin-mse">—</span></div>
+    </div>
+    <canvas id="canvas-lin" width="640" height="400"></canvas>
+  </div>
+
+  <!-- Loss Landscape -->
+  <div class="panel" id="panel-loss">
+    <div class="controls">
+      <h2>Loss landscape</h2>
+      <div class="slider-group">
+        <div class="slider-label">weight <span id="loss-w-val">0.00</span></div>
+        <input type="range" id="loss-w" min="-2" max="2" step="0.01" value="0">
+      </div>
+    </div>
+    <canvas id="canvas-loss-fit"  width="360" height="380"></canvas>
+    <canvas id="canvas-loss-loss" width="240" height="380"></canvas>
+  </div>
+
+</div>
+
+<script>
+// ── Data ──────────────────────────────────────────────────────────────────────
+const linX = [];
+for (let xi = 0; xi < 13.1; xi = Math.round((xi + 0.2) * 10) / 10) linX.push(xi);
+const linY = linX.map(xi => Math.sin(xi) + xi / 4);
+
+// ── Canvas DPR setup ──────────────────────────────────────────────────────────
+function setupCanvas(canvas) {
+  const dpr = window.devicePixelRatio || 1;
+  const cssW = canvas.width, cssH = canvas.height;
+  canvas.width  = cssW * dpr;
+  canvas.height = cssH * dpr;
+  canvas.style.width  = cssW + 'px';
+  canvas.style.height = cssH + 'px';
+  canvas.getContext('2d').scale(dpr, dpr);
+}
+
+// ── Plot margins and helpers ──────────────────────────────────────────────────
+const M = { top: 36, right: 24, bottom: 52, left: 64 };
+
+function makeHelpers(cssW, cssH, xMin, xMax, yMin, yMax) {
+  const pW = cssW - M.left - M.right;
+  const pH = cssH - M.top  - M.bottom;
+  const toC = (x, y) => [
+    M.left + (x - xMin) / (xMax - xMin) * pW,
+    M.top  + pH - (y - yMin) / (yMax - yMin) * pH,
+  ];
+  return { pW, pH, toC };
+}
+
+// ── Shared axes drawing ───────────────────────────────────────────────────────
+// yTickFmt: optional function (value) => label string
+function drawAxes(ctx, cssW, cssH, xMin, xMax, yMin, yMax, xTicks, yTicks, xLabel, yLabel, title, yTickFmt) {
+  const { pW, pH, toC } = makeHelpers(cssW, cssH, xMin, xMax, yMin, yMax);
+  const fmtY = yTickFmt || (v => v);
+
+  // Light grid
+  ctx.strokeStyle = '#ececec'; ctx.lineWidth = 1;
+  for (const ty of yTicks) {
+    const [, cy] = toC(0, ty);
+    ctx.beginPath(); ctx.moveTo(M.left, cy); ctx.lineTo(M.left + pW, cy); ctx.stroke();
+  }
+  for (const tx of xTicks) {
+    const [cx] = toC(tx, 0);
+    ctx.beginPath(); ctx.moveTo(cx, M.top); ctx.lineTo(cx, M.top + pH); ctx.stroke();
+  }
+
+  // Axes
+  const [axL, axB] = toC(xMin, yMin), [axR] = toC(xMax, yMin), [, axT] = toC(xMin, yMax);
+  ctx.strokeStyle = '#333'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(axL, axB); ctx.lineTo(axR, axB); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(axL, axB); ctx.lineTo(axL, axT); ctx.stroke();
+
+  // X ticks + labels
+  ctx.fillStyle = '#444'; ctx.font = '12px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  for (const tx of xTicks) {
+    const [cx, cy] = toC(tx, yMin);
+    ctx.beginPath(); ctx.strokeStyle = '#333'; ctx.lineWidth = 1.5;
+    ctx.moveTo(cx, cy); ctx.lineTo(cx, cy + 4); ctx.stroke();
+    ctx.fillText(tx, cx, cy + 6);
+  }
+
+  // Y ticks + labels
+  ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  for (const ty of yTicks) {
+    const [cx, cy] = toC(xMin, ty);
+    ctx.beginPath(); ctx.strokeStyle = '#333'; ctx.lineWidth = 1.5;
+    ctx.moveTo(cx, cy); ctx.lineTo(cx - 4, cy); ctx.stroke();
+    ctx.fillText(fmtY(ty), cx - 7, cy);
+  }
+
+  // Axis labels
+  ctx.fillStyle = '#444'; ctx.font = 'italic 14px Georgia, serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+  ctx.fillText(xLabel, M.left + pW / 2, cssH - 6);
+
+  ctx.save();
+  const [, midY] = toC(xMin, (yMin + yMax) / 2);
+  ctx.translate(16, midY);
+  ctx.rotate(-Math.PI / 2);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(yLabel, 0, 0);
+  ctx.restore();
+
+  // Title
+  ctx.font = 'bold 14px system-ui'; ctx.fillStyle = '#222';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  ctx.fillText(title, M.left + pW / 2, 8);
+}
+
+// ── Linear / scatter-line plot ────────────────────────────────────────────────
+function drawLinearPlot(canvas, xData, yData, wVal, bVal, lineLabel, title) {
+  const cssW = parseInt(canvas.style.width);
+  const cssH = parseInt(canvas.style.height);
+  const ctx  = canvas.getContext('2d');
+  const xMin = 0, xMax = 13, yMin = -1, yMax = 4.7;
+  const { pW, pH, toC } = makeHelpers(cssW, cssH, xMin, xMax, yMin, yMax);
+  const xTicks = [0, 2, 4, 6, 8, 10, 12];
+  const yTicks = [-1, 0, 1, 2, 3, 4];
+
+  ctx.clearRect(0, 0, cssW, cssH);
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cssW, cssH);
+
+  drawAxes(ctx, cssW, cssH, xMin, xMax, yMin, yMax, xTicks, yTicks, 'x', 'y', title);
+
+  // Prediction line (dashed red), clipped to plot area
+  const [axL, axB] = toC(xMin, yMin), [, axT] = toC(xMin, yMax), [axR] = toC(xMax, yMin);
+  ctx.save();
+  ctx.beginPath(); ctx.rect(M.left, M.top, pW, pH); ctx.clip();
+  ctx.strokeStyle = '#dc2626'; ctx.lineWidth = 2; ctx.setLineDash([6, 4]);
+  ctx.beginPath();
+  ctx.moveTo(...toC(xMin, wVal * xMin + bVal));
+  ctx.lineTo(...toC(xMax, wVal * xMax + bVal));
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+
+  // Data scatter
+  ctx.fillStyle = '#2563eb'; ctx.strokeStyle = '#1d4ed8'; ctx.lineWidth = 1.2;
+  for (let i = 0; i < xData.length; i++) {
+    const [cx, cy] = toC(xData[i], yData[i]);
+    ctx.beginPath(); ctx.arc(cx, cy, 4, 0, 2 * Math.PI); ctx.fill(); ctx.stroke();
+  }
+
+  // Legend (top-right, icon left of text)
+  const legX = M.left + pW - 178, legY = M.top + 8;
+  ctx.fillStyle = 'rgba(255,255,255,0.9)';
+  ctx.fillRect(legX - 6, legY - 5, 174, 46);
+  ctx.strokeStyle = '#ddd'; ctx.lineWidth = 1;
+  ctx.strokeRect(legX - 6, legY - 5, 174, 46);
+
+  ctx.fillStyle = '#2563eb'; ctx.strokeStyle = '#1d4ed8'; ctx.lineWidth = 1.2;
+  ctx.beginPath(); ctx.arc(legX + 6, legY + 9, 5, 0, 2 * Math.PI); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#333'; ctx.font = '12px system-ui'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  ctx.fillText('Sine function', legX + 16, legY + 9);
+
+  ctx.strokeStyle = '#dc2626'; ctx.lineWidth = 2; ctx.setLineDash([5, 3]);
+  ctx.beginPath(); ctx.moveTo(legX, legY + 28); ctx.lineTo(legX + 18, legY + 28); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = '#333'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  ctx.fillText(lineLabel, legX + 22, legY + 28);
+}
+
+// ── Loss landscape plot ───────────────────────────────────────────────────────
+function drawLossPlot(canvas, wVal, mseVal) {
+  const cssW = parseInt(canvas.style.width);
+  const cssH = parseInt(canvas.style.height);
+  const ctx  = canvas.getContext('2d');
+  const xMin = -2, xMax = 2, yMin = 0, yMax = 5000;
+  const { pW, pH, toC } = makeHelpers(cssW, cssH, xMin, xMax, yMin, yMax);
+  const xTicks = [-2, -1, 0, 1, 2];
+  const yTicks = [0, 1000, 2000, 3000, 4000, 5000];
+
+  ctx.clearRect(0, 0, cssW, cssH);
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cssW, cssH);
+
+  drawAxes(ctx, cssW, cssH, xMin, xMax, yMin, yMax, xTicks, yTicks, 'weight', 'MSE', 'Loss landscape',
+    v => v === 0 ? '0' : (v / 1000) + 'k');
+
+  // Dot + crosshairs clipped to plot area so point disappears off the top edge
+  const [cx, cy] = toC(wVal, mseVal);
+  const [axL, axB] = toC(xMin, yMin);
+  ctx.save();
+  ctx.beginPath(); ctx.rect(M.left, M.top, pW, pH); ctx.clip();
+
+  ctx.strokeStyle = '#fca5a5'; ctx.lineWidth = 1; ctx.setLineDash([4, 3]);
+  ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx, axB); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(axL, cy); ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.fillStyle = '#dc2626'; ctx.strokeStyle = '#b91c1c'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.arc(cx, cy, 7, 0, 2 * Math.PI); ctx.fill(); ctx.stroke();
+  ctx.restore();
+}
+
+// ── MSE helper ────────────────────────────────────────────────────────────────
+function computeMSE(xData, yData, w, b) {
+  return xData.reduce((sum, xi, i) => sum + (yData[i] - w * xi - b) ** 2, 0);
+}
+
+// ── Slider binding ────────────────────────────────────────────────────────────
+function bindSliders(ids, renderFn) {
+  ids.forEach(id => {
+    const el = document.getElementById(id);
+    const valEl = document.getElementById(id + '-val');
+    el.addEventListener('input', () => {
+      if (valEl) valEl.textContent = parseFloat(el.value).toFixed(2);
+      renderFn();
+    });
+  });
+}
+
+// ── Setup canvases ────────────────────────────────────────────────────────────
+const linCanvas = document.getElementById('canvas-lin');
+const lossFit   = document.getElementById('canvas-loss-fit');
+const lossLoss  = document.getElementById('canvas-loss-loss');
+[linCanvas, lossFit, lossLoss].forEach(setupCanvas);
+
+// ── Linear fit ────────────────────────────────────────────────────────────────
+function renderLin() {
+  const w = +document.getElementById('lin-w').value;
+  const b = +document.getElementById('lin-b').value;
+  document.getElementById('lin-mse').textContent = computeMSE(linX, linY, w, b).toFixed(2);
+  drawLinearPlot(linCanvas, linX, linY, w, b,
+    `y = ${w.toFixed(2)}x + ${b.toFixed(2)}`, 'Tuning a linear fit');
+}
+bindSliders(['lin-w', 'lin-b'], renderLin);
+
+// ── Loss landscape ────────────────────────────────────────────────────────────
+function renderLoss() {
+  const w = +document.getElementById('loss-w').value;
+  drawLinearPlot(lossFit, linX, linY, w, 0,
+    `y = ${w.toFixed(2)}x`, 'Linear fit (no bias)');
+  drawLossPlot(lossLoss, w, computeMSE(linX, linY, w, 0));
+}
+bindSliders(['loss-w'], renderLoss);
+
+// ── Tabs ──────────────────────────────────────────────────────────────────────
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('panel-' + btn.dataset.tab).classList.add('active');
+    ({ lin: renderLin, loss: renderLoss })[btn.dataset.tab]();
+  });
+});
+
+// ── Initial render ────────────────────────────────────────────────────────────
+renderLin();
+</script>
+</body>
+</html>
