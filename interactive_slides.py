@@ -305,8 +305,8 @@ def _(mo):
 def _(linear_b, linear_w, mo, np, plt):
     def plot_linear_fit_on_sin():
         # Generate some sample data
-        x = np.arange(10.1, step=0.2)
-        y = np.sin(x)
+        x = np.arange(13.1, step=0.2)
+        y = np.sin(x) + x/4
 
         y_pred = linear_w.value * x + linear_b.value
         mse = ((y - y_pred) ** 2).sum()
@@ -324,7 +324,7 @@ def _(linear_b, linear_w, mo, np, plt):
         ax.set(
             xlabel="x",
             ylabel="y",
-            ylim=(-3, 3),
+            ylim=(-1, 4.7),
         )
 
         return mo.hstack(
@@ -350,10 +350,12 @@ def _(linear_b, linear_w, mo, np, plt):
 
 @app.cell
 def _(linear_b, linear_w, mo, np, plt):
+    # Relationship between loss and weight
+
     def plot_linear_fit_no_bias_on_sin():
         # Generate some sample data
-        x = np.arange(10.1, step=0.2)
-        y = np.sin(x)
+        x = np.arange(13.1, step=0.2)
+        y = np.sin(x) + x / 4
 
         y_pred = linear_w.value * x
         mse = ((y - y_pred) ** 2).sum()
@@ -371,7 +373,7 @@ def _(linear_b, linear_w, mo, np, plt):
         ax.set(
             xlabel="x",
             ylabel="y",
-            ylim=(-3, 3),
+            ylim=(-1, 4.7),
         )
 
         fig2, ax = plt.subplots(figsize=(6, 6))
@@ -388,14 +390,13 @@ def _(linear_b, linear_w, mo, np, plt):
             ylim=(0, 5000),
         )
 
-        return mo.vstack(
+        return mo.hstack(
             [
-                f"weight = {linear_w.value}",
-                linear_w,
-                mo.hstack(
+                fig,
+                mo.vstack(
                     [
-                        fig,
                         fig2,
+                        mo.hstack([mo.Html('<div style="width: 20%"></div>'), linear_w]),
                     ]
                 ),
             ]
